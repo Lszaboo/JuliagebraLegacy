@@ -64,7 +64,7 @@ end
 
 const _POINT_STYLE_VALUES = [POINT_NONE, POINT_PLUS]
 const _POINT_STYLE_LABELS = [".", "+"]
-function renderContent(self::PointsWindow, app::AppDNA)
+function renderContent(self::PointsWindow)
     col_flags = CImGui.ImGuiTableColumnFlags_WidthFixed
     
     if !CImGui.BeginTable("points_tbl", 8,
@@ -106,8 +106,6 @@ function renderContent(self::PointsWindow, app::AppDNA)
             y_ref = Ref(Cdouble(coord.y))
             z_ref = Ref(Cdouble(coord.z))
 
-            position_changed = false
-
             CImGui.TableNextColumn()
             CImGui.PushItemWidth(-1)
             if CImGui.InputDouble("##x$id", x_ref, 0.0, 0.0, "%.4f")
@@ -117,7 +115,6 @@ function renderContent(self::PointsWindow, app::AppDNA)
                     coord[3]
                 )
                 schedule(self._model,node)
-                position_changed = true
             end
 
             CImGui.TableNextColumn()
@@ -129,7 +126,6 @@ function renderContent(self::PointsWindow, app::AppDNA)
                     coord[3]
                 )
                 schedule(self._model,node)
-                position_changed = true
             end
 
             CImGui.TableNextColumn()
@@ -141,11 +137,6 @@ function renderContent(self::PointsWindow, app::AppDNA)
                     z_ref[]
                 )
                 schedule(self._model,node)
-                position_changed = true
-            end
-
-            if (position_changed)
-                update_position!(app, node)
             end
         else
             CImGui.TableNextColumn()

@@ -30,17 +30,6 @@ struct UBO_Data
     _near_far_fov_hovered::Vec4F
 end
 
-# Has to be "vec4"s, otherwise two 12 bits (of the 3 floats)
-# would be smushed together, and the first float of max
-# would be in the remaining 4 bits, essentially losing that data
-struct UBO_AABB
-    min::Vec4F
-    max::Vec4F
-end
-
-const AABB_MIN_DEFAULT = [-10.0,-10.0,-10.0]
-const AABB_MAX_DEFAULT = [ 10.0, 10.0, 10.0]
-
 mutable struct OpenGLData
     _window::GLFWData
     _profiler::Profiler
@@ -57,7 +46,6 @@ mutable struct OpenGLData
     _highlighter::Pipeline
     _buffer_clear::Pipeline
     _grid::Pipeline
-    _surface_normals::Pipeline
 
     # ! Main FBO objects
     _rgbaTexture::Texture2D
@@ -72,7 +60,6 @@ mutable struct OpenGLData
     _transparentFBO::FrameBuffer
 
     _ubo::MappedBuffer{UBO_Data}
-    _ubo_aabb::MappedBuffer{UBO_AABB}
     _pixel_buffer_dist::Buffer{UVec4}
     _pixel_buffer_col::Buffer{UVec4}
     _pixel_buffer_id::Buffer{UVec2}
@@ -81,7 +68,10 @@ mutable struct OpenGLData
 
     _backgroundCol::Vec3F
 
-    _last_vp::Mat4T{Float32}
+    _vp::Mat4T{Float32}
+    _v::Mat4T{Float32}
+    _p::Mat4T{Float32}
+    _camPos::Vec3F
 
     # GREEN Thread, runs this inside Init, after this construction can begin
     function OpenGLData(window::GLFWData,asset_watcher::Union{Nothing,AssetWatcher})
@@ -94,8 +84,7 @@ mutable struct OpenGLData
         # ! for OpenGLData to succesfully construct, a GLFWData is required, but not stored
         glClearStencil(0)
         glStencilMask(0xFF);
-        _backgroundCol = Vec3F(0.73f0,0.73f0,0.73f0)
-        glClearColor(_backgroundCol[1], _backgroundCol[2], _backgroundCol[3], 1.0f0)
+        glClearColor(0.73f0,0.73f0,0.73f0,1.0f0)
         glDisable(GL_DITHER);
 
         profiler = Profiler()
@@ -111,13 +100,14 @@ mutable struct OpenGLData
         init!(profiler)
 
         pipeline_loader = PipelineLoader()
-        compile_shaders(pipeline_loader)
-        if haskey(ENV,"AUTO_COMPILE_SHADER") && ENV["AUTO_COMPILE_SHADER"] == "true"
-            watch_folder!(asset_watcher,_shader_src_folder)
-            set_file_deleted_callback(asset_watcher,glsl_shader_extensions,get_glsl_delete_callback(pipeline_loader))
-            update_callback = get_glsl_update_callback(pipeline_loader)
-            set_file_changed_callback(asset_watcher,glsl_shader_extensions,update_callback)
-            set_file_changed_callback(asset_watcher,glsl_shader_include_extensions,update_callback)
+        full_compile(pipeline_loader)
+        if haskey(ENV,"JULIAGEBRA_COMPILE_SPIRV") && ENV["JULIAGEBRA_COMPILE_SPIRV"] == "true"
+            if asset_watcher !== nothing
+                watch_folder!(asset_watcher,pkgdir(@__MODULE__,"assets","shaders","src"))
+                set_file_changed_callback(asset_watcher,glsl_shader_extensions,get_glsl_update_callback(pipeline_loader))
+                set_file_deleted_callback(asset_watcher,glsl_shader_extensions,get_glsl_delete_callback(pipeline_loader))
+                set_file_changed_callback(asset_watcher,glsl_shader_include_extensions,get_glsl_include_update_callback(pipeline_loader))
+            end
         end
 
         transparent_color_combiner = create_graphics_pipeline!(pipeline_loader;
@@ -137,7 +127,6 @@ mutable struct OpenGLData
             vert = spv"postprocess/grid.vert",
             frag = spv"postprocess/grid.frag"
         )
-        surface_normals = create_compute_pipeline!(pipeline_loader, spv"misc/surface_normals.comp")
 
         depth_stencil = Texture2D(window.width,window.height,GL_DEPTH24_STENCIL8,GL_DEPTH_STENCIL,GL_UNSIGNED_INT_24_8)
         depth_stencil_behind_opaque = Texture2D(window.width,window.height,GL_DEPTH24_STENCIL8,GL_DEPTH_STENCIL,GL_UNSIGNED_INT_24_8)
@@ -170,13 +159,6 @@ mutable struct OpenGLData
         ubo = MappedBuffer{UBO_Data}()
         reserve!(ubo, 1, 0)
         glBindBufferBase(GL_UNIFORM_BUFFER, 10, ubo._id);
-        ubo_aabb = MappedBuffer{UBO_AABB}()
-        reserve!(ubo_aabb, 1, 0)
-        ubo_aabb[1] = UBO_AABB(
-            Vec4F(AABB_MIN_DEFAULT[1],AABB_MIN_DEFAULT[2],AABB_MIN_DEFAULT[3],0.0),
-            Vec4F(AABB_MAX_DEFAULT[1],AABB_MAX_DEFAULT[2],AABB_MAX_DEFAULT[3],0.0)
-        )
-        glBindBufferBase(GL_UNIFORM_BUFFER, 11, ubo_aabb._id);
 
         pixel_buffer_dist = Buffer{UVec4}()
         pixel_count = Int64(window.width * window.height)
@@ -201,15 +183,18 @@ mutable struct OpenGLData
         observers::Vector{RendererDNA} = RendererDNA[]
         renderers = PrimitiveRenderers(pipeline_loader,window.scale)
         
-        last_vp = mat4(1.0f0) 
+        p = perspective(Float32(70.0),Float32(window.width/window.height),Float32(0.01),Float32(100.0))
+        v = lookat(Vec3F(0.0,-5.0,0.0),Vec3F(0.0,0.0,0.0),Vec3F(0.0,0.0,1.0))
+        vp = p * v 
+        camPos = Vec3F(0.0,0.0,0.0)
 
         self = new(window,profiler,passes,cpu_stopwatch,pipeline_loader,observers,renderers,
-            transparent_color_combiner,transparent_id_combiner,highlighter,buffer_clear,grid,surface_normals,
+            transparent_color_combiner,transparent_id_combiner,highlighter,buffer_clear,grid,
             rgba,id,depth_stencil,depth_stencil_behind_opaque,accum,reveal,
             opaqueFBO,behindOpaqueFBO,transparentFBO,
-            ubo,ubo_aabb,pixel_buffer_dist,pixel_buffer_col,pixel_buffer_id,empty_vao,
+            ubo,pixel_buffer_dist,pixel_buffer_col,pixel_buffer_id,empty_vao,
             Vec3F(0.73,0.73,0.73),
-            last_vp)
+            vp,v,p,camPos)
         
         self._observers = create_dependent_observers(self)
         return self
@@ -439,6 +424,7 @@ function blit_scene!(self::OpenGLData,cam::Camera,hovered::UInt32)
 end
 
 function _ubo_update!(self::OpenGLData,cam::Camera,hovered::UInt32)
+    # Ubo update
     (vp, v, p) = get_matrices(cam)
     (cam_light, side_light) = get_lights(cam)
     glBindBufferBase(GL_UNIFORM_BUFFER, 10, 0)
@@ -449,8 +435,8 @@ function _ubo_update!(self::OpenGLData,cam::Camera,hovered::UInt32)
     self._ubo[1] = UBO_Data(
         vp,v,p,
         Vec4F(-side_light...,width),Vec4F(-cam_light...,height),
-        Vec4F(cam.eye...,cam.aspect),Vec4F(cam.at...,reinterpret(Float32,UInt32(self._window.width))),
-        Vec4F(cam.zNear,cam.zFar,get_fov(cam),reinterpret(Float32,hovered))
+        Vec4F(cam._eye...,width/height),Vec4F(cam._at...,reinterpret(Float32,UInt32(self._window.width))),
+        Vec4F(cam._zNear,cam._zFar,deg2rad(cam._fov),reinterpret(Float32,hovered))
     )
     glBindBufferBase(GL_UNIFORM_BUFFER, 10, id(self._ubo))
 end

@@ -47,7 +47,7 @@ end
 
 function renderContent(self::CurvesWindow)
     col_flags = CImGui.ImGuiTableColumnFlags_WidthFixed
-    if !CImGui.BeginTable("curves_tbl", 5,
+    if !CImGui.BeginTable("curves_tbl", 4,
             CImGui.ImGuiTableFlags_Borders | CImGui.ImGuiTableFlags_RowBg |
             CImGui.ImGuiTableFlags_ScrollY)
         return
@@ -58,7 +58,6 @@ function renderContent(self::CurvesWindow)
     CImGui.TableSetupColumn("Colors", col_flags, 250.0) 
     CImGui.TableSetupColumn("Width",  col_flags, 90.0 )
     CImGui.TableSetupColumn("Style",  col_flags, 65.0 )
-    CImGui.TableSetupColumn("Tess",   col_flags, 65.0 )
     CImGui.TableHeadersRow()
 
     for node in getNodes(self._model._graph)
@@ -160,10 +159,6 @@ function renderContent(self::CurvesWindow)
             node._style = _CURVE_STYLE_VALUES[style_ref[] + 1]
             set_style(self._renderer,node)
         end
-
-        # --- Tessellation Type Column ---
-        CImGui.TableNextColumn()
-        CImGui.Text(is_gpu_tessellated(node) ? "GPU" : "CPU")
     end
 
     CImGui.EndTable()

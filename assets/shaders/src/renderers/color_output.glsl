@@ -1,13 +1,8 @@
 #ifndef COLOR_OUTPUT
 #define COLOR_OUTPUT
 #if defined(TRANSPARENT)
-    #if defined(GL_ARB_fragment_shader_interlock)
-        #extension GL_ARB_fragment_shader_interlock : enable
-        layout(pixel_interlock_unordered) in;
-    #else
-        #undef TRANSPARENT
-        #define TRANSPARENT_WEIGHTED_ONLY
-    #endif
+#extension GL_ARB_fragment_shader_interlock : require
+layout(pixel_interlock_unordered) in;
 #endif
 #extension GL_GOOGLE_include_directive : require
 #include "../common_data.glsl"

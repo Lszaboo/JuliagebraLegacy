@@ -21,16 +21,11 @@ mutable struct App <: AppDNA
     _model::Model
     _scene_change::Bool
 
-    _asset_watcher::AssetWatcher
+    _asset_watcher::Union{Nothing,AssetWatcher}
     _hovered::UInt32
 
     _delta_time::Float64
     _vsync_state::Int32
-
-    _cb_helper_asts::Vector{Expr}
-    _transpiler_config::ConfigHandle
-    _pending_tessellations::Vector{ParametricDependentDNA} # used to batch sync GPU-tess param deps
-    _tessellation_fence::GLsync
 
     function App(
         name::String="Juliagebra",
@@ -51,26 +46,19 @@ mutable struct App <: AppDNA
         
         model = Model()
 
-        asset_watcher = AssetWatcher()
+        asset_watcher::Union{Nothing,AssetWatcher} = nothing
+        if haskey(ENV,"JULIAGEBRA_COMPILE_SPIRV") && ENV["JULIAGEBRA_COMPILE_SPIRV"] == "true"
+            asset_watcher = AssetWatcher()
+        end
         hovered::UInt32 = 0
 
         delta_time = 0.0
         vsync_state = Int32(1)
 
-        cb_helper_asts = Expr[]
-
-        transpiler_config = ConfigHandle()
-        set_config_opts!(transpiler_config; target_version="460 core", code_gen_indent=UInt16(0),
-                         local_size=UInt32.((GPU_TESS_LOCAL_SIZE, 1, 1)))
-
-        pending_tessellations = ParametricDependentDNA[]
-        tessellation_fence = C_NULL
-
         new(
             glfw,inputs,opengl,imgui,
             nothing,nothing,cam,manipulator,
-            optimizer,starter,commander,model,false,asset_watcher,hovered,delta_time,vsync_state,
-            cb_helper_asts,transpiler_config,pending_tessellations,tessellation_fence)
+            optimizer,starter,commander,model,false,asset_watcher,hovered,delta_time,vsync_state)
     end
 end
 
@@ -86,8 +74,7 @@ sceneChanged(self::App)::Nothing = (self._scene_change = true;nothing)
 function resize!(self::App, event::Event)::Bool
     resize!(self._glfw, event.width, event.height)
     resize!(self._opengl, self._glfw)
-    self._cam.aspect = self._glfw.width / self._glfw.height
-    calculate_projection_matrix!(self._cam)
+    set_aspect!(self._cam, self._glfw.width, self._glfw.height)
     return false
 end
 
@@ -110,37 +97,7 @@ function setup_callbacks(self::App)::Nothing
     register_callback!(event -> on_gizmo_left_click!(self), self._inputs, MOUSE_BUTTON_DOWN, Cint(GLFW.MOUSE_BUTTON_LEFT))
     register_callback!(event -> on_gizmo_right_click!(self), self._inputs, MOUSE_BUTTON_DOWN, Cint(GLFW.MOUSE_BUTTON_RIGHT))
     register_callback!(event -> on_gizmo_left_release!(self), self._inputs, MOUSE_BUTTON_UP,   Cint(GLFW.MOUSE_BUTTON_LEFT))
-    register_callback!(event -> begin
-        drag = on_gizmo_drag!(self, event)
-        resize!(self._imgui._coordinatesWidget, Int(self._glfw.width), Int(self._glfw.height))
-        return drag
-    end, self._inputs, MOUSE_MOVE)
-    
-    # --- KEYBOARD DOWN EVENTS ---
-    register_callback!(event -> begin
-        drag = on_gizmo_drag_axis_start!(self, AXIS_X)
-        resize!(self._imgui._coordinatesWidget, Int(self._glfw.width), Int(self._glfw.height))
-        return drag
-    end, self._inputs, KEY_DOWN, Cint(GLFW.KEY_X))
-    register_callback!(event -> begin
-        drag = on_gizmo_drag_axis_start!(self, AXIS_Y)
-        resize!(self._imgui._coordinatesWidget, Int(self._glfw.width), Int(self._glfw.height))
-        return drag
-    end, self._inputs, KEY_DOWN, Cint(GLFW.KEY_Y))
-    register_callback!(event -> begin
-        drag = on_gizmo_drag_axis_start!(self, AXIS_Z)
-        resize!(self._imgui._coordinatesWidget, Int(self._glfw.width), Int(self._glfw.height))
-        return drag
-    end, self._inputs, KEY_DOWN, Cint(GLFW.KEY_Z))
-    register_callback!(event -> begin
-        recompile_shaders(self._opengl._pipeline_loader)
-        return false
-    end, self._inputs, KEY_DOWN, Cint(GLFW.KEY_F5))
-    
-    # --- KEYBOARD UP EVENTS ---
-    register_callback!(event -> on_gizmo_drag_axis_end!(self, AXIS_X), self._inputs, KEY_UP, Cint(GLFW.KEY_X))
-    register_callback!(event -> on_gizmo_drag_axis_end!(self, AXIS_Y), self._inputs, KEY_UP, Cint(GLFW.KEY_Y))
-    register_callback!(event -> on_gizmo_drag_axis_end!(self, AXIS_Z), self._inputs, KEY_UP, Cint(GLFW.KEY_Z))
+    register_callback!(event -> on_gizmo_drag!(self, event), self._inputs, MOUSE_MOVE)
 
     register_callbacks!(self._inputs, self._manipulator)
     return nothing
@@ -148,9 +105,12 @@ end
 
 function updateCam!(self::App,delta_time::Float64)::Bool
     update!(self._manipulator, delta_time, self._inputs)
-    vp = get_matrices(self._cam)[1]
-    change = vp != self._opengl._last_vp
-    self._opengl._last_vp = vp
+    self._opengl._camPos = self._cam._eye
+    vp,v,p = get_matrices(self._cam)
+    change = vp != self._opengl._vp
+    self._opengl._vp = vp
+    self._opengl._v  = v
+    self._opengl._p  = p
     return change
 end
 
@@ -166,7 +126,7 @@ function play!(self::App)
         new_time::Float64 = time()
         delta_time = new_time - old_time
         old_time = new_time
-        update!(self._asset_watcher,delta_time)
+        if self._asset_watcher !== nothing update!(self._asset_watcher,delta_time) end
         self._scene_change |= updateCam!(self,delta_time)
         
         model::Model = self._model
@@ -251,8 +211,7 @@ function init!(self::App)
     end
     
     init!(self._glfw, true)
-    self._cam.aspect = self._glfw.width / self._glfw.height
-    calculate_projection_matrix!(self._cam)
+    set_aspect!(self._cam,self._glfw.width,self._glfw.height)
     self._opengl = OpenGLData(self._glfw,self._asset_watcher)
     setup_callbacks(self)
     setup_event_handles(self._glfw,self._inputs)

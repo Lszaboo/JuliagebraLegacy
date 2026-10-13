@@ -21,8 +21,6 @@ mutable struct ImGuiData <: ImGuiDNA
     _widgets::Vector{ImGuiWidgetDNA}
     _dock::Dock
 
-    _coordinatesWidget::CoordinatesWidget
-
     # GREEN Thread
     function ImGuiData(app::AppDNA)
         glfwD::GLFWData = getGLFW(app)
@@ -63,11 +61,8 @@ mutable struct ImGuiData <: ImGuiDNA
 
         push!(widgets,dock)
         push!(widgets,ResetWidget())
-        push!(widgets,OptionsWidget(openglD._backgroundCol,AABB_MIN_DEFAULT,AABB_MAX_DEFAULT))
-        coordinatesWidget = CoordinatesWidget(app._opengl._renderers.gizmo)
-        push!(widgets,coordinatesWidget)
         
-        self = new(textFont,iconFont,pool,dependents,widgets,dock,coordinatesWidget)
+        self = new(textFont,iconFont,pool,dependents,widgets,dock)
         
         resetObservers!(self)
         resize!(self,glfwD)
