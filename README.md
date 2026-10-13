@@ -1,10 +1,18 @@
-# Juliagebra
+# JuliagebraLegacy
 
 Geogebra like 3D interactive plotting libary written in Julia and OpenGL.
 
+> ## NOTE
+>
+> This repository is just a fork of the original at [Csabix/Juliagebra](https://github.com/Csabix/Juliagebra).
+>
+> The fork is an archive of the repo just after my MSc Thesis submission, where I cleaned up some benchmarking leftovers and made parts of my code more readable.
+>
+> So to be specific, the fork state is precisely at [Model gpu prep work (#154)](https://github.com/Csabix/Juliagebra/commit/e138ed188b806b027fef7a9579dd4b14ef339f39) commit.
+
 ## Used Packages
 
-Every package used by Juliagebra can be found in the [Project.toml](Project.toml) file.
+Every package used by Juliagebra can be found in the [Project.toml](Project.toml) file. 
 
 For some examples **DifferentialEquations** package is needed, which may downgrade your **DataStructures** package.
 
