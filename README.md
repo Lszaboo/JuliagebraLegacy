@@ -10,6 +10,28 @@ Geogebra like 3D interactive plotting libary written in Julia and OpenGL.
 >
 > So to be specific, the fork state is precisely at [Model gpu prep work (#154)](https://github.com/Csabix/Juliagebra/commit/e138ed188b806b027fef7a9579dd4b14ef339f39) commit.
 
+## Gallery
+
+| Real-Time Least Squares fitting |
+| --- | 
+| ![least_squares](gallery/least_squares.png) |
+
+| Intersection of rotational surfaces along a path with a tori |
+| --- | 
+| ![intersection](gallery/metszesek.png) |
+
+| Animations of planets combined with user interactivity |
+| --- | 
+| ![animations](gallery/planetsanim.png) |
+
+| Jupyter Notebook integration for incremental programming |
+| --- | 
+| ![jupyter](gallery/jupyternotebook.png) |
+
+| surfaces | intersection | scroll |
+| - | - | - |
+| ![psurface](gallery/psurface.png) | ![intersection](gallery/psurfintersect.png) | ![scroll](gallery/scroll.png) |
+
 ## Used Packages
 
 Every package used by Juliagebra can be found in the [Project.toml](Project.toml) file. 
